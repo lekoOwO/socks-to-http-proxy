@@ -1,4 +1,4 @@
-use clap::{Args, Parser};
+use clap::{ArgAction, Args, Parser};
 use color_eyre::eyre::{OptionExt, Result};
 
 use sthp::proxy::auth::Auth;
@@ -56,6 +56,10 @@ struct Cli {
     #[arg(long)]
     http_basic: Option<String>,
 
+    /// Disable forwarding Proxy-Authorization credentials to the SOCKS proxy
+    #[arg(long = "no-forward-basic-auth", default_value_t = false, action = ArgAction::SetTrue)]
+    no_forward_basic_auth: bool,
+
     #[cfg(unix)]
     /// Run process in background
     #[arg(short, long, default_value_t = false)]
@@ -87,20 +91,31 @@ async fn main_entry(args: Cli) -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(filter).init();
     color_eyre::install()?;
 
-    let socks_addr = args.socks_address;
-    let port = args.port;
-    let auth_details = args
-        .auth
-        .map(|auth| Auth::new(auth.username, auth.password));
+    let Cli {
+        port,
+        listen_ip,
+        auth,
+        socks_address,
+        allowed_domains,
+        http_basic,
+        no_forward_basic_auth,
+        ..
+    } = args;
+
+    let socks_addr = socks_address;
+    let auth_details = auth.map(|auth| Auth::new(auth.username, auth.password));
     let auth_details = &*Box::leak(Box::new(auth_details));
-    let addr = SocketAddr::from((args.listen_ip, port));
-    let allowed_domains = args.allowed_domains;
+    let addr = SocketAddr::from((listen_ip, port));
+    let allowed_domains = allowed_domains;
     let allowed_domains = &*Box::leak(Box::new(allowed_domains));
-    let http_basic = args
-        .http_basic
-        .map(|hb| format!("Basic {}", general_purpose::STANDARD.encode(hb)))
-        .map(|hb| HeaderValue::from_str(&hb))
-        .transpose()?;
+    let http_basic = if no_forward_basic_auth {
+        http_basic
+            .map(|hb| format!("Basic {}", general_purpose::STANDARD.encode(hb)))
+            .map(|hb| HeaderValue::from_str(&hb))
+            .transpose()?
+    } else {
+        None
+    };
     let http_basic = &*Box::leak(Box::new(http_basic));
 
     let listener = TcpListener::bind(addr).await?;
@@ -117,6 +132,7 @@ async fn main_entry(args: Cli) -> Result<()> {
                 auth_details.as_ref(),
                 allowed_domains.as_ref(),
                 http_basic.as_ref(),
+                !no_forward_basic_auth,
             )
             .await
             {

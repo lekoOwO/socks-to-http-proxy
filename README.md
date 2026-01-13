@@ -84,15 +84,12 @@ Compose lets you keep the same CLI flags while managing the container alongside 
 ```yaml
 services:
   sthp:
-    image: ghcr.io/lekoowo/socks-to-http-proxy:${STHP_TAG:-latest}
+    image: ghcr.io/lekoowo/socks-to-http-proxy:main
     command:
       - --listen-ip
       - 0.0.0.0
       - --socks-address
       - socks-proxy:1080
-      - --allowed-domains
-      - example.com
-      - --no-forward-basic-auth
     ports:
       - "8080:8080"
 ```
